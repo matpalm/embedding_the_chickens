@@ -5,14 +5,13 @@
 # note: initing the network and runs through are horrifically slow :/
 
 from PIL import Image
-from collections import namedtuple
 import io
 import sys
 import tensorflow as tf
 import tensorflow_hub as hub
 import numpy as np
+from detections.detection import Detection
 
-Detection = namedtuple('Detection', ['entity', 'score', 'x0', 'y0', 'x1', 'y1'])
 
 class Detector(object):
 
@@ -38,9 +37,10 @@ class Detector(object):
         for box, class_name, score in zip(boxes, class_names, scores):
             if score > 0.1:
                 ymin, xmin, ymax, xmax = tuple(box)
-                x1, x2, y1, y2 = map(int, [xmin * w, xmax * w, ymin * h, ymax * h])
+                x0, x1, y0, y1 = map(
+                    int, [xmin * w, xmax * w, ymin * h, ymax * h])
                 class_name = class_name.decode("ascii")
-                yield Detection(str(class_name), float(score), x1, x2, y1, y2)
+                yield Detection(str(class_name), float(score), x0, y0, x1, y1)
 
 
 if __name__ == "__main__":
@@ -49,8 +49,9 @@ if __name__ == "__main__":
     db = img_db.ImgDB()
     detector = Detector()
 
-    # TODO: no doubt batching here would speed things up somewhat :/ i.e. convert to tf.data pipeline
-    # but this model explicitly doesn't support batching :/ #faildog
+    # TODO: no doubt batching here would speed things up somewhat :/ i.e.
+    # convert to tf.data pipeline but this model explicitly _doesn't_ support
+    # batching :/ #faildog
     for img_id, fname in db.fnames_without_detections():
         print(img_id, fname)
         detections = detector.detections(fname)

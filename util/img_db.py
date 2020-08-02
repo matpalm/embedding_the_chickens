@@ -1,5 +1,7 @@
 import psycopg2
 from util import util as u
+from detections.detection import Detection
+
 
 class ImgDB(object):
     def __init__(self):
@@ -11,7 +13,8 @@ class ImgDB(object):
             cam, ymd, hms = u.split_fname(fname)
             values.append((cam, f"{ymd} {hms}", fname))
         c = self.conn.cursor()
-        c.executemany("insert into imgs (cam, dts, fname) values (%s, %s, %s)", values)
+        c.executemany(
+            "insert into imgs (cam, dts, fname) values (%s, %s, %s)", values)
         self.conn.commit()
 
     def fnames_without_detections(self):
@@ -21,8 +24,17 @@ class ImgDB(object):
 
     def set_detections(self, img_id, detections):
         c = self.conn.cursor()
-        values = [(img_id, d.entity, d.score, d.x0, d.y0, d.x1, d.y1) for d in detections]
+        values = [(img_id, d.entity, d.score, d.x0, d.y0, d.x1, d.y1)
+                  for d in detections]
         c.executemany("insert into detections (img_id, entity, score, x0, y0, x1, y1)"
                       " values (%s,%s,%s,%s,%s,%s,%s)", values)
-        c.execute("update imgs set detections_run=true where id=%s" % (img_id,))
+        c.execute("update imgs set detections_run=true where id=%s" %
+                  (img_id,))
         self.conn.commit()
+
+    def detections_for_img(self, fname):
+        c = self.conn.cursor()
+        c.execute("select d.entity, d.score, d.x0, d.y0, d.x1, d.y1"
+                  " from detections d join imgs i on d.img_id=i.id"
+                  " where i.fname='%s'" % (fname,))
+        return list(map(Detection._make, c.fetchall()))

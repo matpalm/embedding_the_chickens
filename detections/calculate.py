@@ -44,7 +44,7 @@ class Detector(object):
 
 
 if __name__ == "__main__":
-    from util import img_db
+    from db import img_db
 
     db = img_db.ImgDB()
     detector = Detector()

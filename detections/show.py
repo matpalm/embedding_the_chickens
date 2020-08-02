@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from util import img_db
+from db import img_db
 from PIL import Image, ImageDraw, ImageColor, ImageFont
 import numpy as np
 import detections.util as u

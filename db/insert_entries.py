@@ -4,11 +4,11 @@
 # open them in PIL as a first filter to check they are valid
 
 # run daily as something like...
-# find data/ -type f | grep 20180927 | sort | p util.insert_entry_into_db
+# find data/ -type f | grep 20180927 | sort | p db.insert_entries
 
 import sys
 from PIL import Image
-from util import img_db
+from db import img_db
 
 
 def fnames():

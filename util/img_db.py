@@ -1,6 +1,13 @@
 import psycopg2
-from util import util as u
 from detections.detection import Detection
+import re
+
+
+def split_fname(fname):
+    m = re.match("data/pi_(.)/(\d*)/(\d*).jpg", fname)
+    if not m:
+        raise Exception("unparsable fname format [%s]" % fname)
+    return m.groups()
 
 
 class ImgDB(object):
@@ -10,7 +17,7 @@ class ImgDB(object):
     def insert_fname_entries(self, fnames):
         values = []
         for fname in fnames:
-            cam, ymd, hms = u.split_fname(fname)
+            cam, ymd, hms = split_fname(fname)
             values.append((cam, f"{ymd} {hms}", fname))
         c = self.conn.cursor()
         c.executemany(

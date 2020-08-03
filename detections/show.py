@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 from db import img_db
 from PIL import Image, ImageDraw, ImageColor, ImageFont
 import numpy as np

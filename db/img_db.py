@@ -1,13 +1,6 @@
 import psycopg2
 from detections.detection import Detection
-import re
-
-
-def split_fname(fname):
-    m = re.match("data/pi_(.)/(\d*)/(\d*).jpg", fname)
-    if not m:
-        raise Exception("unparsable fname format [%s]" % fname)
-    return m.groups()
+from file_util import split_fname
 
 
 class ImgDB(object):
@@ -41,7 +34,7 @@ class ImgDB(object):
 
     def detections_for_img(self, fname):
         c = self.conn.cursor()
-        c.execute("select d.entity, d.score, d.x0, d.y0, d.x1, d.y1"
+        c.execute("select d.id, d.entity, d.score, d.x0, d.y0, d.x1, d.y1"
                   " from detections d join imgs i on d.img_id=i.id"
-                  " where i.fname='%s'" % (fname,))
+                  " where i.fname='%s' order by d.id" % (fname,))
         return list(map(Detection._make, c.fetchall()))

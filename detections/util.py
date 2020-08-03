@@ -81,3 +81,17 @@ def non_max_suppression(boxes, scores, overlap_thresh):
 
     # return picks
     return pick_to_suppressions
+
+
+def square_bb(x0, y0, x1, y1):
+    # shuffle bounding box so that it's square, based on greater of
+    # width or height, always centered around the middle of the crop
+    cx, cy = (x0+x1)/2, (y0+y1)/2
+    w, h = x1 - x0, y1 - y0
+    if w > h:
+        y0 = int(cy - w/2)
+        y1 = int(cy + w/2)
+    elif h > w:
+        x0 = int(cx - h/2)
+        x1 = int(cx + h/2)
+    return x0, y0, x1, y1

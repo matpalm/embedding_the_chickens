@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 # run faster_rcnn on all images in db that don't have detections yet.
 # _highly_ recommended to set 'export TFHUB_CACHE_DIR=/data/tf_hub_module_cache/'
 # note: initing the network and runs through are horrifically slow :/
@@ -11,6 +9,7 @@ import tensorflow as tf
 import tensorflow_hub as hub
 import numpy as np
 from detections.detection import Detection
+from tqdm import tqdm
 
 
 class Detector(object):
@@ -40,19 +39,21 @@ class Detector(object):
                 x0, x1, y0, y1 = map(
                     int, [xmin * w, xmax * w, ymin * h, ymax * h])
                 class_name = class_name.decode("ascii")
-                yield Detection(str(class_name), float(score), x0, y0, x1, y1)
+                yield Detection(-1, str(class_name), float(score), x0, y0, x1, y1)
 
 
 if __name__ == "__main__":
     from db import img_db
 
     db = img_db.ImgDB()
-    detector = Detector()
+    fnames_to_process = db.fnames_without_detections()
+    if len(fnames_to_process) == 0:
+        exit()
 
     # TODO: no doubt batching here would speed things up somewhat :/ i.e.
     # convert to tf.data pipeline but this model explicitly _doesn't_ support
     # batching :/ #faildog
-    for img_id, fname in db.fnames_without_detections():
-        print(img_id, fname)
+    detector = Detector()
+    for img_id, fname in tqdm(fnames_to_process):
         detections = detector.detections(fname)
         db.set_detections(img_id, detections)

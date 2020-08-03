@@ -19,11 +19,11 @@ def rectangle(canvas, xy, outline, width=5):
 
 
 class AnnotateImageWithDetections(object):
-    def __init__(self, entities_blacklist=[]):
+    def __init__(self, allow_deny_filter):
         self.db = img_db.ImgDB()
         self.colours = sorted(list(ImageColor.colormap.values()))
         self.c_idx = 0
-        self.entities_blacklist = set(entities_blacklist)
+        self.allow_deny_filter = allow_deny_filter
 
     def annotate_img(self, img_full_filename, min_score=0, show_all=False):
         img = Image.open(img_full_filename)
@@ -38,7 +38,7 @@ class AnnotateImageWithDetections(object):
         entities = []
         scores = []
         for d in detections:
-            if d.entity in self.entities_blacklist:
+            if not self.allow_deny_filter.allow(d.entity):
                 continue
             bounding_boxes.append([d.x0, d.y0, d.x1, d.y1])
             entities.append(d.entity)
@@ -52,9 +52,6 @@ class AnnotateImageWithDetections(object):
         bounding_boxes = np.stack(bounding_boxes)
         entities = np.array(entities)
         scores = np.array(scores)
-        # print("bounding_boxes", bounding_boxes)
-        # print("entities", entities)
-        # print("scores", scores)
 
         # decide which detections to pick; either all of them (for show_all)
         # or by doing non max suppression to collect key bounding boxes along
@@ -106,7 +103,9 @@ if __name__ == "__main__":
     import sys
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--entity-blacklist', type=str, default='',
+    parser.add_argument('--entity-allow-list', type=str,
+                        help='comma seperated list of entities to ignore')
+    parser.add_argument('--entity-deny-list', type=str,
                         help='comma seperated list of entities to ignore')
     parser.add_argument('--min-score', type=float, default=0,
                         help='minimum detection score to show')
@@ -117,8 +116,9 @@ if __name__ == "__main__":
     opts = parser.parse_args()
     print("opts %s" % opts, file=sys.stderr)
 
-    annotator = AnnotateImageWithDetections(
-        entities_blacklist=opts.entity_blacklist.split(","))
+    allow_deny_filter = u.AllowDenyFilter(opts.entity_allow_list,
+                                          opts.entity_deny_list)
+    annotator = AnnotateImageWithDetections(allow_deny_filter)
     annotated_img = annotator.annotate_img(opts.filename,
                                            min_score=opts.min_score,
                                            show_all=opts.show_all)

@@ -1,6 +1,30 @@
 import numpy as np
 
 
+class AllowDenyFilter(object):
+
+    def __init__(self, allow_list_str=None, deny_list_str=None):
+        def split_str(list_str):
+            return set([s.strip() for s in list_str.split(",")])
+
+        if allow_list_str is None:
+            self.allow_set = None
+        else:
+            self.allow_set = split_str(allow_list_str)
+
+        if deny_list_str is None:
+            self.deny_set = None
+        else:
+            self.deny_set = split_str(deny_list_str)
+
+    def allow(self, s):
+        if self.allow_set is not None:
+            return s in self.allow_set
+        if self.deny_set is not None:
+            return s not in self.deny_set
+        return True
+
+
 def non_max_suppression(boxes, scores, overlap_thresh):
     # if there are no boxes, return an empty list
     if len(boxes) == 0:

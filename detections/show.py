@@ -33,66 +33,39 @@ class AnnotateImageWithDetections(object):
             print("NOTE! no detections for %s" % img_full_filename)
             return img
 
-        # collect all detections
-        bounding_boxes = []
-        entities = []
-        scores = []
-        for d in detections:
-            if not self.allow_deny_filter.allow(d.entity):
-                continue
-            bounding_boxes.append([d.x0, d.y0, d.x1, d.y1])
-            entities.append(d.entity)
-            scores.append(d.score)
-        if len(bounding_boxes) == 0:
+        # collect all non filtered detections
+        non_filtered_detections = [d for d in detections
+                                   if self.allow_deny_filter.allow(d.entity)]
+        if len(non_filtered_detections) == 0:
             print("NOTE! there were %d detections, but none after filtering" %
                   len(detections))
             return img
 
-        # stack all detections
-        bounding_boxes = np.stack(bounding_boxes)
-        entities = np.array(entities)
-        scores = np.array(scores)
-
-        # decide which detections to pick; either all of them (for show_all)
-        # or by doing non max suppression to collect key bounding boxes along
-        # with their corresponding suppressions
+        # further filter through non_max_suppression, if not --show-all
         if show_all:
-            picks = range(len(bounding_boxes))
+            picked_detections = non_filtered_detections
         else:
-            pick_to_suppressions = u.non_max_suppression(
-                bounding_boxes, scores=scores, overlap_thresh=0.6)
-            print("pick_to_suppressions", pick_to_suppressions)
-            picks = pick_to_suppressions.keys()
+            picked_detections = u.non_max_suppression(
+                non_filtered_detections, overlap_thresh=0.6)
 
         # draw detections on image and show
         canvas = ImageDraw.Draw(img, 'RGBA')
         font = ImageFont.truetype('Pillow/Tests/fonts/FreeMono.ttf', 20)
-        for i, pick in enumerate(picks):
-            score = scores[pick]
-            if score < min_score:
+        for i, d in enumerate(picked_detections):
+            if d.score < min_score:
                 continue
 
-            bounding_box = bounding_boxes[pick]
-            entity = entities[pick]
-
-            x0, y0, x1, y1 = bounding_box
-            area = (x1-x0)*(y1-y0)
+            area = (d.x1-d.x0)*(d.y1-d.y0)
             alpha = 255
-            entity_colour = ENTITY_TO_COLOUR.get(entity, (0, 0, 0))
-            rectangle(canvas, xy=(x0, y0, x1, y1),
+            entity_colour = ENTITY_TO_COLOUR.get(d.entity, (0, 0, 0))
+            rectangle(canvas, xy=(d.x0, d.y0, d.x1, d.y1),
                       outline=(*entity_colour, alpha))
 
-            if show_all:
-                debug_text = "e:%s: s:%0.3f a:%0.1f  p:%d" % (
-                    entity, score, area, pick)
-            else:
-                suppressions = pick_to_suppressions[pick]
-                debug_text = "e:%s: s:%0.3f a:%0.1f  p:%d sup:%s" % (
-                    entity, score, area, pick, suppressions)
+            debug_text = "e:%s: s:%0.3f a:%0.1f" % (d.entity, d.score, area)
 
             canvas.text(xy=(0, 25*i), text=debug_text, font=font, fill='black')
-            canvas.text(xy=(1, 25*i+1), text=debug_text,
-                        font=font, fill=entity_colour)
+            canvas.text(xy=(1, 25*i+1), text=debug_text, font=font,
+                        fill=entity_colour)
             print(debug_text)
 
         return img

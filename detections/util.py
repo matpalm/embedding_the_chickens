@@ -25,21 +25,18 @@ class AllowDenyFilter(object):
         return True
 
 
-def non_max_suppression(boxes, scores, overlap_thresh):
+def non_max_suppression(detections, overlap_thresh):
+
     # if there are no boxes, return an empty list
-    if len(boxes) == 0:
+    if len(detections) == 0:
         return []
 
-    # if the bounding boxes integers, convert them to floats --
-    # this is important since we'll be doing a bunch of divisions
-    if boxes.dtype.kind == "i":
-        boxes = boxes.astype("float")
-
-    # grab the coordinates of the bounding boxes
-    x1 = boxes[:, 0]
-    y1 = boxes[:, 1]
-    x2 = boxes[:, 2]
-    y2 = boxes[:, 3]
+    # extract coordinates of the bounding boxes and scores from detections
+    x1 = np.array([d.x0 for d in detections], dtype=np.float)
+    y1 = np.array([d.y0 for d in detections], dtype=np.float)
+    x2 = np.array([d.x1 for d in detections], dtype=np.float)
+    y2 = np.array([d.y1 for d in detections], dtype=np.float)
+    scores = np.array([d.score for d in detections])
 
     # compute the area of the bounding boxes and sort the bounding
     # boxes by the bottom-right y-coordinate of the bounding box
@@ -79,8 +76,11 @@ def non_max_suppression(boxes, scores, overlap_thresh):
         pick_to_suppressions[i] = list(reversed(idxs[suppressed_idxs[1:]]))
         idxs = np.delete(idxs, suppressed_idxs)
 
-    # return picks
-    return pick_to_suppressions
+    # debug picks
+    print("pick_to_suppressions", pick_to_suppressions)
+
+    # filter and return
+    return [detections[p] for p in pick_to_suppressions.keys()]
 
 
 def square_bb(x0, y0, x1, y1):

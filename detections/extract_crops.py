@@ -28,25 +28,30 @@ ignore_freq = Counter()
 fnames = [s.strip() for s in open(opts.manifest).readlines()]
 for fname in tqdm(fnames):
 
-    cam, ymd, hms = file_util.split_fname(fname)
-    crop_dir = f"crops/{cam}/{ymd}/{hms}"
-    pil_img = None  # lazy load, may be no detections
-
-    crop_np_arrays = []
-    crop_detection_ids = []
-
+    # do first pass filter of entity allow/deny and score
+    filtered_detections = []
     for d in db.detections_for_img(fname):
         if not allow_deny_filter.allow(d.entity):
             ignore_freq[d.entity] += 1
-            continue
-        if d.score < opts.min_score:
+        elif d.score < opts.min_score:
             ignore_freq["BELOW_MIN_SCORE"] += 1
-            continue
+        else:
+            filtered_detections.append(d)
+    if len(filtered_detections) == 0:
+        ignore_freq['ALL_FILTERED'] += 1
+        continue
 
-        # lazy load image and create crop dir
-        if pil_img is None:
-            file_util.ensure_dir_exists(crop_dir)
-            pil_img = Image.open(fname)
+    # do second pass filter based on non_max_suppression
+    filtered_detections = u.non_max_suppression(filtered_detections,
+                                                overlap_thresh=0.6)
+
+    cam, ymd, hms = file_util.split_fname(fname)
+    crop_dir = f"crops/{cam}/{ymd}/{hms}"
+    file_util.ensure_dir_exists(crop_dir)
+    pil_img = Image.open(fname)
+    crop_np_arrays = []
+    crop_detection_ids = []
+    for d in filtered_detections:
 
         # make bb crop square (with buffer) resized to (128, 128)
         x0, y0, x1, y1 = u.square_bb(d.x0-5, d.y0-5, d.x1+5, d.y1+5)
@@ -65,9 +70,8 @@ for fname in tqdm(fnames):
         # collect some entity stats
         crop_entity_freq[d.entity] += 1
 
-    if pil_img is not None:
-        np.save(f"{crop_dir}/crops.npy", np.stack(crop_np_arrays))
-        np.save(f"{crop_dir}/crop_detection_ids.npy", crop_detection_ids)
+    np.save(f"{crop_dir}/crops.npy", np.stack(crop_np_arrays))
+    np.save(f"{crop_dir}/crop_detection_ids.npy", crop_detection_ids)
 
 print()
 print("crop_entity_freq", crop_entity_freq)

@@ -77,7 +77,7 @@ def non_max_suppression(detections, overlap_thresh):
         idxs = np.delete(idxs, suppressed_idxs)
 
     # debug picks
-    print("pick_to_suppressions", pick_to_suppressions)
+    #print("pick_to_suppressions", pick_to_suppressions)
 
     # filter and return
     return [detections[p] for p in pick_to_suppressions.keys()]

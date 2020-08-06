@@ -27,7 +27,6 @@ class AllowDenyFilter(object):
 
 def non_max_suppression(detections, overlap_thresh):
 
-    # if there are no boxes, return an empty list
     if len(detections) == 0:
         return []
 
@@ -43,7 +42,7 @@ def non_max_suppression(detections, overlap_thresh):
     area = (x2 - x1 + 1e-10) * (y2 - y1 + 1e-10)
     idxs = np.argsort(scores)
 
-    # { pick idxs: suppressions } to return
+    # { pick idxs: [ suppressions ] }
     pick_to_suppressions = {}
 
     # keep looping while some indexes still remain in the indexes list

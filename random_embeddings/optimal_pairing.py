@@ -1,4 +1,5 @@
 from ortools.linear_solver import pywraplp
+import numpy as np
 
 
 def calculate_optimal_pairing(sims):
@@ -44,3 +45,10 @@ def calculate_optimal_pairing(sims):
             if x[i, j].solution_value() == 1:
                 solution.append((i, j))
     return dict(solution)
+
+
+def optimal_pairing_to_one_hot_labels(sims, pairings):
+    labels = np.zeros_like(sims)
+    for i, j in pairings.items():
+        labels[i, j] = 1.0
+    return labels

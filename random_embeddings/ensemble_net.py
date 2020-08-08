@@ -29,20 +29,16 @@ class EnsembleNet(object):
         self.num_models = num_models
         key = random.PRNGKey(0)
         subkeys = random.split(key, 8)
-        self.conv1_kernels = orthogonal()(
-            subkeys[0], (num_models, 3, 3, 3, 32))
-        self.conv2_kernels = orthogonal()(
-            subkeys[1], (num_models, 3, 3, 32, 64))
-        self.conv3_kernels = orthogonal()(
-            subkeys[2], (num_models, 3, 3, 64, 128))
-        self.conv4_kernels = orthogonal()(
-            subkeys[3], (num_models, 3, 3, 128, 128))
-        self.conv5_kernels = orthogonal()(
-            subkeys[4], (num_models, 3, 3, 128, 128))
-        self.conv6_kernels = orthogonal()(
-            subkeys[5], (num_models, 3, 3, 128, 128))
+        self.conv_kernels = []
+
+        input_size = 3
+        for i, output_size in enumerate([32, 64, 64, 64, 64, 64]):
+            self.conv_kernels.append(orthogonal()(
+                subkeys[i], (num_models, 3, 3, input_size, output_size)))
+            input_size = output_size
+
         self.dense_kernels = orthogonal()(
-            subkeys[6], (num_models, 1, 1, 128, 32))
+            subkeys[6], (num_models, 1, 1, 64, 32))
         self.embedding_kernels = orthogonal()(
             subkeys[7], (num_models, 1, 1, 32, 32))
 
@@ -53,20 +49,23 @@ class EnsembleNet(object):
     def _embed(self, input):
 
         # convolutional stack; stride 2 for downsizing
-        y = vmap(partial(conv_block, 2, True, input))(self.conv1_kernels)
-        y = vmap(partial(conv_block, 2, True))(y, self.conv2_kernels)
-        y = vmap(partial(conv_block, 2, True))(y, self.conv3_kernels)
-        y = vmap(partial(conv_block, 2, True))(y, self.conv4_kernels)
-        y = vmap(partial(conv_block, 2, True))(y, self.conv5_kernels)
-        y = vmap(partial(conv_block, 2, True))(y, self.conv5_kernels)
 
-        # fully convolutional dense layer to project down
+        # the first call vmaps over the first kernels for a single input
+        y = vmap(partial(conv_block, 2, True, input))(self.conv_kernels[0])
+
+        # subsequent calls vmap over both the prior input and the kernel
+        # the first representing the batched input with the second representing
+        # the batched models (i.e. the ensemble)
+        for conv_kernel in self.conv_kernels[1:]:
+            y = vmap(partial(conv_block, 2, True))(y, conv_kernel)
+
+        # fully convolutional dense layer (with relu) as bottleneck
         y = vmap(partial(conv_block, 1, True))(y, self.dense_kernels)
 
-        # final projection to embedding dim (with no activation), squeezed and
-        # unit length normalised.
+        # final projection to embedding dim (with no activation); embeddings are
+        # squeezed and unit length normalised.
         embeddings = vmap(partial(conv_block, 1, False))(
             y, self.embedding_kernels)
         embeddings = jnp.squeeze(embeddings)  # (M, N, 32)
         embeddings /= jnp.linalg.norm(embeddings, axis=-1, keepdims=True)
-        return embeddings
+        return embeddings  # (M=models, N=num_inputs, E=embedding_dim)

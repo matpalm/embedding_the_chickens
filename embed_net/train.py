@@ -1,7 +1,7 @@
 from embed_net import optimal_pairing
 from embed_net import ensemble_net
-import numpy as np\
-    from detections import img_utils
+import numpy as np
+from detections import img_utils
 
 
 def calculate_labels(logits_from_sims):

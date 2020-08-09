@@ -1,6 +1,6 @@
 import jax
 import jax.numpy as jnp
-from jax import random, lax, vmap, jit
+from jax import random, lax, vmap, jit, grad
 from jax.nn.initializers import orthogonal
 from jax.nn.functions import relu
 from functools import partial
@@ -68,3 +68,27 @@ def embed(params, input):
     embeddings = jnp.squeeze(embeddings)  # (M, N, 32)
     embeddings /= jnp.linalg.norm(embeddings, axis=-1, keepdims=True)
     return embeddings  # (M=models, N=num_inputs, E=embedding_dim)
+
+
+@jit
+def calc_sims(params, crops_t0, crops_t1):
+    embeddings_t0 = embed(params, crops_t0)
+    embeddings_t1 = embed(params, crops_t1)
+    return jnp.einsum('mae,mbe->ab', embeddings_t0, embeddings_t1)
+
+
+@jit
+def loss(params, crops_t0, crops_t1, labels):
+    logits_from_sims = calc_sims(params, crops_t0, crops_t1)
+    batch_softmax_cross_entropy = jnp.mean(
+        -jnp.sum(jax.nn.log_softmax(logits_from_sims) * labels, axis=-1))
+    return batch_softmax_cross_entropy
+
+
+@jit
+def update(params, crops_t0, crops_t1, labels, learning_rate=1e-4):
+    gradients = grad(loss)(params, crops_t0, crops_t1, labels)
+    updated_params = []
+    for p, g in zip(params, gradients):
+        updated_params.append(p - (g * learning_rate))
+    return updated_params

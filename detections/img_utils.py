@@ -2,6 +2,10 @@ from PIL import Image
 import numpy as np
 
 
+def load_crops_as_floats(fname):
+    return np.load(fname).astype(np.float32) / 255.0
+
+
 def pil_img_from_array(array):
     return Image.fromarray((array * 255.0).astype(np.uint8))
 

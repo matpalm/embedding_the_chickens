@@ -1,4 +1,4 @@
-from PIL import Image
+from detections import img_utils
 import numpy as np
 from embed_net import ensemble_net
 from embed_net import optimal_pairing
@@ -9,10 +9,6 @@ import pandas as pd
 # given dataset of adjacent frames (from successive_frames_to_training_data)
 # generate embeddings from random ensemble net, calculate pair wise sims,
 # derive optimal pairing and generate collage under "collages/"
-
-
-def load_crops_as_floats(fname):
-    return np.load(fname).astype(np.float32) / 255.0
 
 
 if __name__ == '__main__':
@@ -26,13 +22,10 @@ if __name__ == '__main__':
         base_dir, f0, f1 = row['dir'], row['frame_0'], row['frame_1']
         print(base_dir, f0, f1)
 
-        crops_t0 = load_crops_as_floats(f"{base_dir}/{f0}/crops.npy")
-        embeddings_t0 = ensemble_net.embed(params, crops_t0)
+        crops_t0 = img_utils.load_crops_as_floats(f"{base_dir}/{f0}/crops.npy")
+        crops_t1 = img_utils.load_crops_as_floats(f"{base_dir}/{f1}/crops.npy")
 
-        crops_t1 = load_crops_as_floats(f"{base_dir}/{f1}/crops.npy")
-        embeddings_t1 = ensemble_net.embed(params, crops_t1)
-
-        sims = np.einsum('mae,mbe->ab', embeddings_t0, embeddings_t1)
+        sims = ensemble_net.calc_sims(params, crops_t0, crops_t1)
         print("sims", sims.shape)
         print(np.around(sims, decimals=2))
 

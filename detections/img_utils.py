@@ -1,9 +1,13 @@
 from PIL import Image
 import numpy as np
+import jax.numpy as jnp
+from functools import lru_cache
 
-
+# NOTE: no bound on cache; i.e. assume entire dataset fits in GPU mem
+@lru_cache(None)
 def load_crops_as_floats(fname):
-    return np.load(fname).astype(np.float32) / 255.0
+    np_array = np.load(fname).astype(np.float32) / 255.0
+    return jnp.array(np_array)
 
 
 def pil_img_from_array(array):

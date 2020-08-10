@@ -23,8 +23,8 @@ def conv_block(stride, with_relu, input, kernel):
     return block
 
 
-def initial_params(num_models):
-    key = random.PRNGKey(0)
+def initial_params(num_models, seed=0):
+    key = random.PRNGKey(seed)
     subkeys = random.split(key, 8)
 
     # conv stack
@@ -72,9 +72,11 @@ def embed(params, input):
 
 @jit
 def calc_sims(params, crops_t0, crops_t1):
+    num_models = params[0].shape[0]
     embeddings_t0 = embed(params, crops_t0)
     embeddings_t1 = embed(params, crops_t1)
-    return jnp.einsum('mae,mbe->ab', embeddings_t0, embeddings_t1)
+    model_sims = jnp.einsum('mae,mbe->ab', embeddings_t0, embeddings_t1)
+    return model_sims / num_models
 
 
 @jit
@@ -83,12 +85,3 @@ def loss(params, crops_t0, crops_t1, labels):
     batch_softmax_cross_entropy = jnp.mean(
         -jnp.sum(jax.nn.log_softmax(logits_from_sims) * labels, axis=-1))
     return batch_softmax_cross_entropy
-
-
-@jit
-def update(params, crops_t0, crops_t1, labels, learning_rate=1e-4):
-    gradients = grad(loss)(params, crops_t0, crops_t1, labels)
-    updated_params = []
-    for p, g in zip(params, gradients):
-        updated_params.append(p - (g * learning_rate))
-    return updated_params

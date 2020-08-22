@@ -24,6 +24,10 @@ def conv_block(stride, with_relu, input, kernel):
 
 
 def initial_params(num_models, seed=0):
+
+    if num_models <= 1:
+        raise Exception("requires at least two models")
+
     key = random.PRNGKey(seed)
     subkeys = random.split(key, 8)
 

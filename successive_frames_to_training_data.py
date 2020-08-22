@@ -3,6 +3,7 @@ import glob
 import pandas as pd
 from collections import namedtuple
 import sys
+import random
 
 # step through frames and collect cases where there are 5+ crops for two
 # frames in a row. collect all these in a dataframe as a pair where the
@@ -49,5 +50,13 @@ for cam in ['pi_a', 'pi_b', 'pi_c']:
 run.flush()
 
 # write out tsv
-df = pd.DataFrame(run.df_records, columns=['dir', 'frame_0', 'frame_1'])
-df.to_csv(sys.stdout, sep="\t", index=False)
+egs = run.df_records
+random.shuffle(egs)
+split_idx = int(len(egs) * 0.9)
+train_records = run.df_records[:split_idx]
+test_records = run.df_records[split_idx:]
+
+pd.DataFrame(train_records, columns=['dir', 'frame_0', 'frame_1']).to_csv(
+    "train.tsv", sep="\t", index=False)
+pd.DataFrame(test_records, columns=['dir', 'frame_0', 'frame_1']).to_csv(
+    "test.tsv", sep="\t", index=False)

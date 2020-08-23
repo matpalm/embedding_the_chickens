@@ -27,7 +27,6 @@ def parse_frame_pairs(manifest):
 
 
 def train(opts):
-
     train_frame_pairs = parse_frame_pairs(opts.train_tsv)
     test_frame_pairs = parse_frame_pairs(opts.test_tsv)
 
@@ -39,7 +38,8 @@ def train(opts):
         else:
             run = opts.run
         wandb.init(project='embedding_the_chickens',
-                   group=opts.group, name=run)
+                   group=opts.group, name=run,
+                   reinit=True)
         wandb.config.num_models = opts.num_models
         wandb.config.learning_rate = opts.learning_rate
         wandb.config.epochs = opts.epochs
@@ -127,6 +127,13 @@ def train(opts):
             wandb.log({'train_loss': np.mean(train_losses)})
             wandb.log({'test_loss': np.mean(test_losses)})
 
+    wandb.join()  # closes out run
+
+    if nan_loss:
+        return None
+    else:
+        return mean_test_loss
+
 
 if __name__ == '__main__':
     import argparse
@@ -146,4 +153,5 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=3)
     opts = parser.parse_args()
     print(opts, file=sys.stderr)
+
     train(opts)

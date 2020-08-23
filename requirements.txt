@@ -3,3 +3,4 @@ tensorflow
 tensorflow-hub
 jax
 wandb
+ax-platform

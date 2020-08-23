@@ -122,6 +122,8 @@ def train(opts):
         mean_test_loss = np.mean(test_losses)
         print("mean train loss", mean_train_loss)
         print("mean test loss", mean_test_loss)
+
+        # TODO: or only if train_loss is Nan?
         nan_loss = np.isnan(mean_train_loss) or np.isnan(mean_test_loss)
         if wandb_enabled and not nan_loss:
             wandb.log({'train_loss': np.mean(train_losses)})

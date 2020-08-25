@@ -6,6 +6,32 @@ from jax.nn.functions import relu
 from functools import partial
 
 
+def initial_params(num_models, dense_kernel_size=32, embedding_dim=32, seed=0):
+
+    if num_models <= 1:
+        raise Exception("requires at least two models")
+
+    key = random.PRNGKey(seed)
+    subkeys = random.split(key, 8)
+
+    # conv stack
+    conv_kernels = []
+    input_size = 3
+    for i, output_size in enumerate([32, 64, 64, 64, 64, 64]):
+        conv_kernels.append(orthogonal()(
+            subkeys[i], (num_models, 3, 3, input_size, output_size)))
+        input_size = output_size
+    # dense kernel
+    dense_kernels = orthogonal()(
+        subkeys[6], (num_models, 1, 1, 64, dense_kernel_size))
+    # embeddings
+    embedding_kernels = orthogonal()(
+        subkeys[7], (num_models, 1, 1, dense_kernel_size, embedding_dim))
+
+    # return all params
+    return conv_kernels + [dense_kernels, embedding_kernels]
+
+
 def conv_block(stride, with_relu, input, kernel):
     no_dilation = (1, 1)
     some_height_width = 10  # values don't matter; just shape of input
@@ -23,39 +49,16 @@ def conv_block(stride, with_relu, input, kernel):
     return block
 
 
-def initial_params(num_models, seed=0):
-
-    if num_models <= 1:
-        raise Exception("requires at least two models")
-
-    key = random.PRNGKey(seed)
-    subkeys = random.split(key, 8)
-
-    # conv stack
-    conv_kernels = []
-    input_size = 3
-    for i, output_size in enumerate([32, 64, 64, 64, 64, 64]):
-        conv_kernels.append(orthogonal()(
-            subkeys[i], (num_models, 3, 3, input_size, output_size)))
-        input_size = output_size
-    # dense kernel
-    dense_kernels = orthogonal()(subkeys[6], (num_models, 1, 1, 64, 32))
-    # embeddings
-    embedding_kernels = orthogonal()(subkeys[7], (num_models, 1, 1, 32, 32))
-
-    # return all params
-    return conv_kernels + [dense_kernels, embedding_kernels]
-
-
 @jit
-def embed(params, input):
+def embed(params, inp):
+
     assert len(params) == 8
     conv_kernels = params[0:6]
     dense_kernels = params[6]
     embedding_kernels = params[7]
 
     # the first call vmaps over the first kernels for a single input
-    y = vmap(partial(conv_block, 2, True, input))(conv_kernels[0])
+    y = vmap(partial(conv_block, 2, True, inp))(conv_kernels[0])
 
     # subsequent calls vmap over both the prior input and the kernel
     # the first representing the batched input with the second representing
@@ -69,7 +72,7 @@ def embed(params, input):
     # final projection to embedding dim (with no activation); embeddings are
     # squeezed and unit length normalised.
     embeddings = vmap(partial(conv_block, 1, False))(y, embedding_kernels)
-    embeddings = jnp.squeeze(embeddings)  # (M, N, 32)
+    embeddings = jnp.squeeze(embeddings)  # (M, N, E)
     embeddings /= jnp.linalg.norm(embeddings, axis=-1, keepdims=True)
     return embeddings  # (M=models, N=num_inputs, E=embedding_dim)
 
@@ -80,12 +83,14 @@ def calc_sims(params, crops_t0, crops_t1):
     embeddings_t0 = embed(params, crops_t0)
     embeddings_t1 = embed(params, crops_t1)
     model_sims = jnp.einsum('mae,mbe->ab', embeddings_t0, embeddings_t1)
-    return model_sims / num_models
+    avg_model_sims = model_sims / num_models
+    return avg_model_sims
 
 
 @jit
-def loss(params, crops_t0, crops_t1, labels):
+def loss(params, crops_t0, crops_t1, labels, temp=1.0):
     logits_from_sims = calc_sims(params, crops_t0, crops_t1)
+    logits_from_sims /= temp
     batch_softmax_cross_entropy = jnp.mean(
         -jnp.sum(jax.nn.log_softmax(logits_from_sims) * labels, axis=-1))
     return batch_softmax_cross_entropy

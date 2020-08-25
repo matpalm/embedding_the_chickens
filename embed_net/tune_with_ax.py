@@ -34,26 +34,26 @@ ax.create_experiment(
         #     "type": "range",
         #     "bounds": [0.1, 10.0],
         # },
-        # {
-        #     "name": "mlp_dim",
-        #     "type": "range",
-        #     "bounds": [4, 32],
-        # },
-        # {
-        #     "name": "embedding_dim",
-        #     "type": "range",
-        #     "bounds": [4, 32],
-        # },
+        {
+            "name": "dense_kernel_size",
+            "type": "range",
+            "bounds": [4, 64],
+        },
+        {
+            "name": "embedding_dim",
+            "type": "range",
+            "bounds": [4, 64],
+        },
         {
             "name": "num_models",
             "type": "range",
             "bounds": [5, 20],
         },
-        {
-            "name": "epochs",   # TODO remove; just testing ax really...
-            "type": "range",
-            "bounds": [3, 10],
-        },
+        # {
+        #     "name": "epochs",   # TODO remove; just testing ax really...
+        #     "type": "range",
+        #     "bounds": [3, 10],
+        # },
         # {
         #     "name": "normalise",
         #     "type": "choice",
@@ -90,6 +90,7 @@ while True:
     opts.seed = random.randint(0, 1e9)
     opts.train_tsv = 'manifests/20200811/train/sample_20.tsv'
     opts.test_tsv = 'manifests/20200811/train/sample_20.tsv'
+    opts.epochs = 10
     # opts.debug_log = "logs/%s/ax%03d.txt" % (cmd_line_opts.run, trial_index)
     # opts.tb_dir = "tb/%s/ax%03d" % (cmd_line_opts.run, trial_index)
     # opts.model_dir = "models/%s/ax%03d/" % (cmd_line_opts.run, trial_index)
@@ -100,8 +101,10 @@ while True:
 
     # tuned opts. clumsy :/
     opts.num_models = parameters['num_models']
+    opts.dense_kernel_size = parameters['dense_kernel_size']
+    opts.embedding_dim = parameters['embedding_dim']
     opts.learning_rate = parameters['learning_rate']
-    opts.epochs = parameters['epochs']
+
     # opts.mlp_dim = parameters['mlp_dim']
     # opts.embedding_dim = parameters['embedding_dim']
     # opts.normalise = parameters['normalise']

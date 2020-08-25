@@ -12,8 +12,9 @@ import sys
 import traceback
 import datetime
 
-#from jax.config import config
-#config.update("jax_debug_nans", True)
+# uncomment for nan check
+from jax.config import config
+config.update("jax_debug_nans", True)
 
 
 def parse_frame_pairs(manifest):
@@ -48,6 +49,8 @@ def train(opts):
 
     # init model
     params = ensemble_net.initial_params(num_models=opts.num_models,
+                                         dense_kernel_size=opts.dense_kernel_size,
+                                         embedding_dim=opts.embedding_dim,
                                          seed=opts.seed)
 
     # init optimiser
@@ -151,6 +154,8 @@ if __name__ == '__main__':
     parser.add_argument('--test-tsv', type=str,
                         default='manifests/20200811/train/sample_20.tsv')
     parser.add_argument('--num-models', type=int, default=10)
+    parser.add_argument('--dense-kernel-size', type=int, default=32)
+    parser.add_argument('--embedding-dim', type=int, default=32)
     parser.add_argument('--learning-rate', type=float, default=1e-3)
     parser.add_argument('--epochs', type=int, default=3)
     opts = parser.parse_args()

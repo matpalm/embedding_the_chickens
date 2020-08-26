@@ -146,8 +146,10 @@ def train(opts):
             wandb.log({'train_loss': np.mean(train_losses)})
             wandb.log({'test_loss': np.mean(test_losses)})
 
-    wandb.join()  # closes out run
+    # close out wandb run
+    wandb.join()
 
+    # note: use None value to indicate run failed
     if nan_loss:
         return None
     else:

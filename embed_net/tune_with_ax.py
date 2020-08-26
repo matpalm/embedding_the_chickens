@@ -23,38 +23,37 @@ ax = AxClient()
 ax.create_experiment(
     name="embed_net_tuning",
     parameters=[
-        {
-            "name": "num_models",
-            "type": "range",
-            "bounds": [5, 20],
-        },
+        # {
+        #     "name": "num_models",
+        #     "type": "range",
+        #     "bounds": [5, 20],
+        # },
         {
             "name": "dense_kernel_size",
             "type": "range",
-            "bounds": [4, 64],
+            "bounds": [8, 64],
         },
         {
             "name": "embedding_dim",
             "type": "range",
-            "bounds": [4, 64],
+            "bounds": [8, 64],
         },
         {
             "name": "learning_rate",
             "type": "range",
-            "bounds": [1e-6, 1.0],
+            "bounds": [1e-7, 1e-2],
             "log_scale": True,
         },
-        {
-            "name": "ortho_init",
-            "type": "choice",
-            "value_type": "bool",
-            "values": [True, False],
-        },
-
+        # {
+        #     "name": "ortho_init",
+        #     "type": "choice",
+        #     "value_type": "bool",
+        #     "values": [True, False],
+        # },
         {
             "name": "logit_temp",
             "type": "range",
-            "bounds": [0.1, 10.0],
+            "bounds": [0.01, 10.0],
             "log_scale": True,
         },
     ],
@@ -84,17 +83,15 @@ while True:
     opts.group = cmd_line_opts.group
     opts.run = None
     opts.seed = random.randint(0, 1e9)
-    opts.train_tsv = 'manifests/20200811/train/sample_20.tsv'
-    opts.test_tsv = 'manifests/20200811/train/sample_20.tsv'
-    opts.epochs = 10
-
-    # tuned opts. clumsy :/
-    opts.num_models = parameters['num_models']
+    opts.train_tsv = 'manifests/20200811/train/all.tsv'
+    opts.test_tsv = 'manifests/20200811/test.tsv'
+    opts.num_models = 20  # parameters['num_models']
     opts.dense_kernel_size = parameters['dense_kernel_size']
     opts.embedding_dim = parameters['embedding_dim']
     opts.learning_rate = parameters['learning_rate']
-    opts.ortho_init = parameters['ortho_init']
+    opts.ortho_init = False  # parameters['ortho_init']
     opts.logit_temp = parameters['logit_temp']
+    opts.epochs = 10
 
     # run
     start_time = time.time()

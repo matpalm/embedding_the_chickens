@@ -21,14 +21,17 @@ def initial_params(num_models, dense_kernel_size=32, embedding_dim=32,
     else:
         initialiser = he_normal
     conv_kernels = []
-    input_size = 3
-    for i, output_size in enumerate([32, 64, 64, 64, 64, 64]):
+    conv_biases = []
+    input_channels = 3
+    for i, output_channels in enumerate([32, 64, 64, 64, 64, 64]):
         conv_kernels.append(initialiser()(
-            subkeys[i], (num_models, 3, 3, input_size, output_size)))
-        input_size = output_size
+            subkeys[i], (num_models, 3, 3, input_channels, output_channels)))
+        conv_biases.append(jnp.zeros((num_models, output_channels)))
+        input_channels = output_channels
     # dense kernel
     dense_kernels = initialiser()(
         subkeys[6], (num_models, 1, 1, 64, dense_kernel_size))
+    dense_biases = jnp.zeros((num_models, dense_kernel_size))
     # embeddings
     if orthogonal_init:
         initialiser = orthogonal
@@ -38,10 +41,11 @@ def initial_params(num_models, dense_kernel_size=32, embedding_dim=32,
         subkeys[7], (num_models, 1, 1, dense_kernel_size, embedding_dim))
 
     # return all params
-    return conv_kernels + [dense_kernels, embedding_kernels]
+    return conv_kernels + conv_biases + [dense_kernels, dense_biases,
+                                         embedding_kernels]
 
 
-def conv_block(stride, with_non_linearity, input, kernel):
+def conv_block(stride, with_non_linearity, inp, kernel, bias):
     no_dilation = (1, 1)
     some_height_width = 10  # values don't matter; just shape of input
     input_shape = (1, some_height_width, some_height_width, 3)
@@ -50,38 +54,49 @@ def conv_block(stride, with_non_linearity, input, kernel):
     conv_dimension_numbers = lax.conv_dimension_numbers(input_shape,
                                                         kernel_shape,
                                                         input_kernel_output)
-    block = lax.conv_general_dilated(input, kernel, (stride, stride),
+    block = lax.conv_general_dilated(inp, kernel, (stride, stride),
                                      'VALID', no_dilation, no_dilation,
                                      conv_dimension_numbers)
+    if bias is not None:
+        block += bias
     if with_non_linearity:
-        #block = jnp.tanh(block)
         block = gelu(block)
     return block
+
+
+def conv_block_without_bias(stride, with_non_linearity, inp, kernel):
+    # the need for this method feels a bit clunky :/ is there a better
+    # way to vmap with the None?
+    return conv_block(stride, with_non_linearity, inp, kernel, None)
 
 
 @jit
 def embed(params, inp):
 
-    assert len(params) == 8
+    assert len(params) == 15
     conv_kernels = params[0:6]
-    dense_kernels = params[6]
-    embedding_kernels = params[7]
+    conv_biases = params[6:12]
+    dense_kernels = params[12]
+    dense_biases = params[13]
+    embedding_kernels = params[14]
 
-    # the first call vmaps over the first kernels for a single input
-    y = vmap(partial(conv_block, 2, True, inp))(conv_kernels[0])
+    # the first call vmaps over the first conv params for a single input
+    y = vmap(partial(conv_block, 2, True, inp))(
+        conv_kernels[0], conv_biases[0])
 
-    # subsequent calls vmap over both the prior input and the kernel
+    # subsequent calls vmap over both the prior input and the conv params
     # the first representing the batched input with the second representing
     # the batched models (i.e. the ensemble)
-    for conv_kernel in conv_kernels[1:]:
-        y = vmap(partial(conv_block, 2, True))(y, conv_kernel)
+    for conv_kernel, conv_bias in zip(conv_kernels[1:], conv_biases[1:]):
+        y = vmap(partial(conv_block, 2, True))(y, conv_kernel, conv_bias)
 
-    # fully convolutional dense layer (with relu) as bottleneck
-    y = vmap(partial(conv_block, 1, True))(y, dense_kernels)
+    # fully convolutional dense layer (with non linearity) as bottleneck
+    y = vmap(partial(conv_block, 1, True))(y, dense_kernels, dense_biases)
 
-    # final projection to embedding dim (with no activation); embeddings are
-    # squeezed and unit length normalised.
-    embeddings = vmap(partial(conv_block, 1, False))(y, embedding_kernels)
+    # final projection to embedding dim (with no activation and no bias)
+    embeddings = vmap(partial(conv_block_without_bias, 1, False))(
+        y, embedding_kernels)
+    # embeddings are squeezed and unit length normalised.
     embeddings = jnp.squeeze(embeddings)  # (M, N, E)
     embedding_norms = jnp.linalg.norm(embeddings, axis=-1, keepdims=True)
     return embeddings / embedding_norms

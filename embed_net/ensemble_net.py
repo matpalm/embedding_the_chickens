@@ -1,12 +1,13 @@
 import jax
 import jax.numpy as jnp
 from jax import random, lax, vmap, jit, grad
-from jax.nn.initializers import orthogonal
+from jax.nn.initializers import orthogonal, glorot_normal, he_normal
 from jax.nn.functions import gelu
 from functools import partial
 
 
-def initial_params(num_models, dense_kernel_size=32, embedding_dim=32, seed=0):
+def initial_params(num_models, dense_kernel_size=32, embedding_dim=32,
+                   seed=0, orthogonal_init=True):
 
     if num_models <= 1:
         raise Exception("requires at least two models")
@@ -15,17 +16,25 @@ def initial_params(num_models, dense_kernel_size=32, embedding_dim=32, seed=0):
     subkeys = random.split(key, 8)
 
     # conv stack
+    if orthogonal_init:
+        initialiser = orthogonal
+    else:
+        initialiser = he_normal
     conv_kernels = []
     input_size = 3
     for i, output_size in enumerate([32, 64, 64, 64, 64, 64]):
-        conv_kernels.append(orthogonal()(
+        conv_kernels.append(initialiser()(
             subkeys[i], (num_models, 3, 3, input_size, output_size)))
         input_size = output_size
     # dense kernel
-    dense_kernels = orthogonal()(
+    dense_kernels = initialiser()(
         subkeys[6], (num_models, 1, 1, 64, dense_kernel_size))
     # embeddings
-    embedding_kernels = orthogonal()(
+    if orthogonal_init:
+        initialiser = orthogonal
+    else:
+        initialiser = glorot_normal
+    embedding_kernels = initialiser()(
         subkeys[7], (num_models, 1, 1, dense_kernel_size, embedding_dim))
 
     # return all params
@@ -89,7 +98,7 @@ def calc_sims(params, crops_t0, crops_t1):
 
 
 # @jit
-def loss(params, crops_t0, crops_t1, labels, temp=1.0):
+def loss(params, crops_t0, crops_t1, labels, temp):
     logits_from_sims = calc_sims(params, crops_t0, crops_t1)
     logits_from_sims /= temp
     batch_softmax_cross_entropy = jnp.mean(

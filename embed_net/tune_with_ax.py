@@ -24,16 +24,10 @@ ax.create_experiment(
     name="embed_net_tuning",
     parameters=[
         {
-            "name": "learning_rate",
+            "name": "num_models",
             "type": "range",
-            "bounds": [1e-6, 1.0],
-            "log_scale": True,
+            "bounds": [5, 20],
         },
-        # {
-        #     "name": "temperature",
-        #     "type": "range",
-        #     "bounds": [0.1, 10.0],
-        # },
         {
             "name": "dense_kernel_size",
             "type": "range",
@@ -45,22 +39,24 @@ ax.create_experiment(
             "bounds": [4, 64],
         },
         {
-            "name": "num_models",
+            "name": "learning_rate",
             "type": "range",
-            "bounds": [5, 20],
+            "bounds": [1e-6, 1.0],
+            "log_scale": True,
         },
-        # {
-        #     "name": "epochs",   # TODO remove; just testing ax really...
-        #     "type": "range",
-        #     "bounds": [3, 10],
-        # },
-        # {
-        #     "name": "normalise",
-        #     "type": "choice",
-        #     "value_type": "bool",
-        #     "values": [True, False],
-        # },
+        {
+            "name": "ortho_init",
+            "type": "choice",
+            "value_type": "bool",
+            "values": [True, False],
+        },
 
+        {
+            "name": "logit_temp",
+            "type": "range",
+            "bounds": [0.1, 10.0],
+            "log_scale": True,
+        },
     ],
     objective_name="final_loss",
     minimize=True,
@@ -91,24 +87,14 @@ while True:
     opts.train_tsv = 'manifests/20200811/train/sample_20.tsv'
     opts.test_tsv = 'manifests/20200811/train/sample_20.tsv'
     opts.epochs = 10
-    # opts.debug_log = "logs/%s/ax%03d.txt" % (cmd_line_opts.run, trial_index)
-    # opts.tb_dir = "tb/%s/ax%03d" % (cmd_line_opts.run, trial_index)
-    # opts.model_dir = "models/%s/ax%03d/" % (cmd_line_opts.run, trial_index)
-    # opts.batch_size = 512
-    # opts.steps_per_epoch = 100
-
-    # opts.use_early_stopping = True
 
     # tuned opts. clumsy :/
     opts.num_models = parameters['num_models']
     opts.dense_kernel_size = parameters['dense_kernel_size']
     opts.embedding_dim = parameters['embedding_dim']
     opts.learning_rate = parameters['learning_rate']
-
-    # opts.mlp_dim = parameters['mlp_dim']
-    # opts.embedding_dim = parameters['embedding_dim']
-    # opts.normalise = parameters['normalise']
-    # opts.base_filter_size = parameters['base_filter_size']
+    opts.ortho_init = parameters['ortho_init']
+    opts.logit_temp = parameters['logit_temp']
 
     # run
     start_time = time.time()
@@ -116,15 +102,16 @@ while True:
     log_record.append(time.time() - start_time)
     log_record.append(final_loss)
 
+    # complete trial
     if final_loss is None:
         print("ax trial", trial_index, "failed?")
         ax.log_trial_failure(trial_index=trial_index)
     else:
         ax.complete_trial(trial_index=trial_index,
                           raw_data={'final_loss': (final_loss, 0)})
-
     print("CURRENT_BEST", ax.get_best_parameters())
 
+    # flush log
     log_msg = "\t".join(map(str, log_record))
     print(log_msg, file=log)
     print(log_msg)

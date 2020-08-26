@@ -11,6 +11,8 @@ import wandb
 import sys
 import traceback
 import datetime
+from tqdm import tqdm
+from itertools import count
 
 # uncomment for nan check
 from jax.config import config
@@ -28,6 +30,13 @@ def parse_frame_pairs(manifest):
 
 
 def train(opts):
+    if opts.ortho_init in ['True', 'False']:
+        # TODO: move this to argparses problem
+        opts.ortho_init = opts.ortho_init == 'True'
+    if opts.ortho_init not in [True, False]:
+        raise Exception("unknown --ortho-init value [%s]" % opts.ortho_init)
+    ortho_init = opts.ortho_init == 'True'
+
     train_frame_pairs = parse_frame_pairs(opts.train_tsv)
     test_frame_pairs = parse_frame_pairs(opts.test_tsv)
 
@@ -42,8 +51,12 @@ def train(opts):
                    group=opts.group, name=run,
                    reinit=True)
         wandb.config.num_models = opts.num_models
+        wandb.config.dense_kernel_size = opts.dense_kernel_size
+        wandb.config.embedding_dim = opts.embedding_dim
         wandb.config.learning_rate = opts.learning_rate
-        wandb.config.epochs = opts.epochs
+        wandb.config.ortho_init = opts.ortho_init
+        wandb.config.logit_temp = opts.logit_temp
+
     else:
         print("not using wandb", file=sys.stderr)
 
@@ -51,18 +64,21 @@ def train(opts):
     params = ensemble_net.initial_params(num_models=opts.num_models,
                                          dense_kernel_size=opts.dense_kernel_size,
                                          embedding_dim=opts.embedding_dim,
-                                         seed=opts.seed)
+                                         seed=opts.seed,
+                                         orthogonal_init=ortho_init)
 
     # init optimiser
     opt_fns = optimizers.adam(step_size=opts.learning_rate)
     opt_init_fun, opt_update_fun, opt_get_params = opt_fns
     opt_state = opt_init_fun(params)
+    step_idx = count()
 
     # create a jitted step function
     @jit
     def step(i, opt_state, crops_t0, crops_t1, labels):
         params = opt_get_params(opt_state)
-        gradients = grad(ensemble_net.loss)(params, crops_t0, crops_t1, labels)
+        gradients = grad(ensemble_net.loss)(params, crops_t0, crops_t1,
+                                            labels, opts.logit_temp)
         new_opt_state = opt_update_fun(i, gradients, opt_state)
         return new_opt_state
 
@@ -75,7 +91,6 @@ def train(opts):
         return labels
 
     # run training loop
-    i = 0
     for e in range(opts.epochs):
         # shuffle training examples
         orandom.seed(e)
@@ -83,8 +98,7 @@ def train(opts):
 
         # make pass through training examples
         train_losses = []
-        for f0, f1 in train_frame_pairs:
-            i += 1
+        for f0, f1 in tqdm(train_frame_pairs):
             try:
                 # load
                 crops_t0 = img_utils.load_crops_as_floats(f"{f0}/crops.npy")
@@ -92,13 +106,15 @@ def train(opts):
                 # calc labels for crops
                 labels = labels_for_crops(params, crops_t0, crops_t1)
                 # take update step
-                opt_state = step(i, opt_state, crops_t0, crops_t1, labels)
+                opt_state = step(next(step_idx), opt_state,
+                                 crops_t0, crops_t1, labels)
                 params = opt_get_params(opt_state)
                 # collect loss for debugging
-                loss = ensemble_net.loss(params, crops_t0, crops_t1, labels)
+                loss = ensemble_net.loss(
+                    params, crops_t0, crops_t1, labels, opts.logit_temp)
                 train_losses.append(loss)
             except Exception:
-                print("train exception", e, i, f0, f1, file=sys.stderr)
+                print("train exception", e, f0, f1, file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
 
         # eval mean test loss
@@ -112,16 +128,17 @@ def train(opts):
                 # calc labels for crops
                 labels = labels_for_crops(params, crops_t0, crops_t1)
                 # collect loss
-                loss = ensemble_net.loss(params, crops_t0, crops_t1, labels)
+                loss = ensemble_net.loss(
+                    params, crops_t0, crops_t1, labels, opts.logit_temp)
                 test_losses.append(loss)
             except Exception:
-                print("test exception", e, i, f0, f1, file=sys.stderr)
+                print("test exception", e, f0, f1, file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
 
         # log stats
         mean_train_loss = np.mean(train_losses)
         mean_test_loss = np.mean(test_losses)
-        print(e, i, f0, f1, mean_train_loss, mean_test_loss)
+        print(e, mean_train_loss, mean_test_loss)
 
         # TODO: or only if train_loss is Nan?
         nan_loss = np.isnan(mean_train_loss) or np.isnan(mean_test_loss)
@@ -154,6 +171,8 @@ if __name__ == '__main__':
     parser.add_argument('--dense-kernel-size', type=int, default=32)
     parser.add_argument('--embedding-dim', type=int, default=32)
     parser.add_argument('--learning-rate', type=float, default=1e-3)
+    parser.add_argument('--ortho-init', type=str, default='True')
+    parser.add_argument('--logit-temp', type=float, default=1.0)
     parser.add_argument('--epochs', type=int, default=3)
     opts = parser.parse_args()
     print(opts, file=sys.stderr)

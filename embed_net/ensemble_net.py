@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from jax import random, lax, vmap, jit, grad
 from jax.nn.initializers import orthogonal
-from jax.nn.functions import relu
+from jax.nn.functions import gelu
 from functools import partial
 
 
@@ -32,7 +32,7 @@ def initial_params(num_models, dense_kernel_size=32, embedding_dim=32, seed=0):
     return conv_kernels + [dense_kernels, embedding_kernels]
 
 
-def conv_block(stride, with_relu, input, kernel):
+def conv_block(stride, with_non_linearity, input, kernel):
     no_dilation = (1, 1)
     some_height_width = 10  # values don't matter; just shape of input
     input_shape = (1, some_height_width, some_height_width, 3)
@@ -44,8 +44,9 @@ def conv_block(stride, with_relu, input, kernel):
     block = lax.conv_general_dilated(input, kernel, (stride, stride),
                                      'VALID', no_dilation, no_dilation,
                                      conv_dimension_numbers)
-    if with_relu:
-        block = relu(block)
+    if with_non_linearity:
+        #block = jnp.tanh(block)
+        block = gelu(block)
     return block
 
 
@@ -73,8 +74,8 @@ def embed(params, inp):
     # squeezed and unit length normalised.
     embeddings = vmap(partial(conv_block, 1, False))(y, embedding_kernels)
     embeddings = jnp.squeeze(embeddings)  # (M, N, E)
-    embeddings /= jnp.linalg.norm(embeddings, axis=-1, keepdims=True)
-    return embeddings  # (M=models, N=num_inputs, E=embedding_dim)
+    embedding_norms = jnp.linalg.norm(embeddings, axis=-1, keepdims=True)
+    return embeddings / embedding_norms
 
 
 @jit
@@ -87,7 +88,7 @@ def calc_sims(params, crops_t0, crops_t1):
     return avg_model_sims
 
 
-@jit
+# @jit
 def loss(params, crops_t0, crops_t1, labels, temp=1.0):
     logits_from_sims = calc_sims(params, crops_t0, crops_t1)
     logits_from_sims /= temp

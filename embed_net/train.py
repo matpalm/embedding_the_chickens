@@ -96,9 +96,7 @@ def train(opts):
                 params = opt_get_params(opt_state)
                 # collect loss for debugging
                 loss = ensemble_net.loss(params, crops_t0, crops_t1, labels)
-                train_losses.append(float(loss))
-                # print line of debug
-                print(e, i, f0, f1, loss)
+                train_losses.append(loss)
             except Exception:
                 print("train exception", e, i, f0, f1, file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
@@ -123,8 +121,7 @@ def train(opts):
         # log stats
         mean_train_loss = np.mean(train_losses)
         mean_test_loss = np.mean(test_losses)
-        print("mean train loss", mean_train_loss)
-        print("mean test loss", mean_test_loss)
+        print(e, i, f0, f1, mean_train_loss, mean_test_loss)
 
         # TODO: or only if train_loss is Nan?
         nan_loss = np.isnan(mean_train_loss) or np.isnan(mean_test_loss)

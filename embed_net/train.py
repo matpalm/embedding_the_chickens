@@ -5,7 +5,6 @@ from embed_net import ensemble_net
 from detections import img_utils
 from jax import jit, grad
 from jax.experimental import optimizers
-import pandas as pd
 import random as orandom
 import wandb
 import sys
@@ -19,16 +18,6 @@ from jax.config import config
 config.update("jax_debug_nans", True)
 
 
-def parse_frame_pairs(manifest):
-    # read all crop frame pairs from training data .tsv
-    df = pd.read_csv(manifest, sep="\t", dtype=object)
-    frame_pairs = []
-    for _index, row in df.iterrows():
-        frame_pairs.append((f"{row['dir']}/{row['frame_0']}",
-                            f"{row['dir']}/{row['frame_1']}"))
-    return frame_pairs
-
-
 def train(opts):
     if opts.ortho_init in ['True', 'False']:
         # TODO: move this to argparses problem
@@ -37,8 +26,8 @@ def train(opts):
         raise Exception("unknown --ortho-init value [%s]" % opts.ortho_init)
     ortho_init = opts.ortho_init == 'True'
 
-    train_frame_pairs = parse_frame_pairs(opts.train_tsv)
-    test_frame_pairs = parse_frame_pairs(opts.test_tsv)
+    train_frame_pairs = img_utils.parse_frame_pairs(opts.train_tsv)
+    test_frame_pairs = img_utils.parse_frame_pairs(opts.test_tsv)
 
     # init w & b
     wandb_enabled = opts.group is not None

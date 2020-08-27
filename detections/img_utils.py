@@ -2,6 +2,7 @@ from PIL import Image
 import numpy as np
 import jax.numpy as jnp
 from functools import lru_cache
+import pandas as pd
 
 # NOTE: no bound on cache; i.e. assume entire dataset fits in GPU mem
 @lru_cache(None)
@@ -28,3 +29,12 @@ def collage(examples):
             img = pil_img_from_array(examples[r_idx, c_idx])
             collage.paste(img, (c_idx*HWB, r_idx*HWB))
     return collage.resize((2*num_cols*HWB, 2*num_rows*HWB))
+
+
+def parse_frame_pairs(manifest):
+    df = pd.read_csv(manifest, sep="\t", dtype=object)
+    frame_pairs = []
+    for _index, row in df.iterrows():
+        frame_pairs.append((f"{row['dir']}/{row['frame_0']}",
+                            f"{row['dir']}/{row['frame_1']}"))
+    return frame_pairs

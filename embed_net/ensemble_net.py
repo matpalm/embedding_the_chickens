@@ -15,7 +15,7 @@ def initial_params(num_models, dense_kernel_size=32, embedding_dim=32,
     key = random.PRNGKey(seed)
     subkeys = random.split(key, 8)
 
-    # conv stack
+    # conv stack kernels and biases
     if orthogonal_init:
         initialiser = orthogonal
     else:
@@ -28,11 +28,13 @@ def initial_params(num_models, dense_kernel_size=32, embedding_dim=32,
             subkeys[i], (num_models, 3, 3, input_channels, output_channels)))
         conv_biases.append(jnp.zeros((num_models, output_channels)))
         input_channels = output_channels
-    # dense kernel
+
+    # dense kernels and biases
     dense_kernels = initialiser()(
         subkeys[6], (num_models, 1, 1, 64, dense_kernel_size))
     dense_biases = jnp.zeros((num_models, dense_kernel_size))
-    # embeddings
+
+    # embeddings kernel; no bias or non linearity.
     if orthogonal_init:
         initialiser = orthogonal
     else:
@@ -45,7 +47,7 @@ def initial_params(num_models, dense_kernel_size=32, embedding_dim=32,
                                          embedding_kernels]
 
 
-def conv_block(stride, with_non_linearity, inp, kernel, bias):
+def _conv_block(stride, with_non_linearity, inp, kernel, bias):
     no_dilation = (1, 1)
     some_height_width = 10  # values don't matter; just shape of input
     input_shape = (1, some_height_width, some_height_width, 3)
@@ -64,15 +66,14 @@ def conv_block(stride, with_non_linearity, inp, kernel, bias):
     return block
 
 
-def conv_block_without_bias(stride, with_non_linearity, inp, kernel):
+def _conv_block_without_bias(stride, with_non_linearity, inp, kernel):
     # the need for this method feels a bit clunky :/ is there a better
     # way to vmap with the None?
-    return conv_block(stride, with_non_linearity, inp, kernel, None)
+    return _conv_block(stride, with_non_linearity, inp, kernel, None)
 
 
 @jit
 def embed(params, inp):
-
     assert len(params) == 15
     conv_kernels = params[0:6]
     conv_biases = params[6:12]
@@ -81,20 +82,20 @@ def embed(params, inp):
     embedding_kernels = params[14]
 
     # the first call vmaps over the first conv params for a single input
-    y = vmap(partial(conv_block, 2, True, inp))(
+    y = vmap(partial(_conv_block, 2, True, inp))(
         conv_kernels[0], conv_biases[0])
 
     # subsequent calls vmap over both the prior input and the conv params
     # the first representing the batched input with the second representing
     # the batched models (i.e. the ensemble)
     for conv_kernel, conv_bias in zip(conv_kernels[1:], conv_biases[1:]):
-        y = vmap(partial(conv_block, 2, True))(y, conv_kernel, conv_bias)
+        y = vmap(partial(_conv_block, 2, True))(y, conv_kernel, conv_bias)
 
     # fully convolutional dense layer (with non linearity) as bottleneck
-    y = vmap(partial(conv_block, 1, True))(y, dense_kernels, dense_biases)
+    y = vmap(partial(_conv_block, 1, True))(y, dense_kernels, dense_biases)
 
     # final projection to embedding dim (with no activation and no bias)
-    embeddings = vmap(partial(conv_block_without_bias, 1, False))(
+    embeddings = vmap(partial(_conv_block_without_bias, 1, False))(
         y, embedding_kernels)
     # embeddings are squeezed and unit length normalised.
     embeddings = jnp.squeeze(embeddings)  # (M, N, E)

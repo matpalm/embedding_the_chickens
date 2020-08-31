@@ -4,3 +4,4 @@ tensorflow-hub
 jax
 wandb
 ax-platform
+objax

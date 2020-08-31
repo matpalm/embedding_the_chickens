@@ -1,50 +1,11 @@
 import jax
 import jax.numpy as jnp
-from jax import random, lax, vmap, jit, grad
+from jax import random, lax, vmap
 from jax.nn.initializers import orthogonal, glorot_normal, he_normal
 from jax.nn.functions import gelu
 from functools import partial
-
-
-def initial_params(num_models, dense_kernel_size=32, embedding_dim=32,
-                   seed=0, orthogonal_init=True):
-
-    if num_models <= 1:
-        raise Exception("requires at least two models")
-
-    key = random.PRNGKey(seed)
-    subkeys = random.split(key, 8)
-
-    # conv stack kernels and biases
-    if orthogonal_init:
-        initialiser = orthogonal
-    else:
-        initialiser = he_normal
-    conv_kernels = []
-    conv_biases = []
-    input_channels = 3
-    for i, output_channels in enumerate([32, 64, 64, 64, 64, 64]):
-        conv_kernels.append(initialiser()(
-            subkeys[i], (num_models, 3, 3, input_channels, output_channels)))
-        conv_biases.append(jnp.zeros((num_models, output_channels)))
-        input_channels = output_channels
-
-    # dense kernels and biases
-    dense_kernels = initialiser()(
-        subkeys[6], (num_models, 1, 1, 64, dense_kernel_size))
-    dense_biases = jnp.zeros((num_models, dense_kernel_size))
-
-    # embeddings kernel; no bias or non linearity.
-    if orthogonal_init:
-        initialiser = orthogonal
-    else:
-        initialiser = glorot_normal
-    embedding_kernels = initialiser()(
-        subkeys[7], (num_models, 1, 1, dense_kernel_size, embedding_dim))
-
-    # return all params
-    return conv_kernels + conv_biases + [dense_kernels, dense_biases,
-                                         embedding_kernels]
+import objax
+from objax.variable import TrainVar
 
 
 def _conv_block(stride, with_non_linearity, inp, kernel, bias):
@@ -72,51 +33,86 @@ def _conv_block_without_bias(stride, with_non_linearity, inp, kernel):
     return _conv_block(stride, with_non_linearity, inp, kernel, None)
 
 
-@jit
-def embed(params, inp):
-    assert len(params) == 15
-    conv_kernels = params[0:6]
-    conv_biases = params[6:12]
-    dense_kernels = params[12]
-    dense_biases = params[13]
-    embedding_kernels = params[14]
+class EnsembleNet(objax.Module):
 
-    # the first call vmaps over the first conv params for a single input
-    y = vmap(partial(_conv_block, 2, True, inp))(
-        conv_kernels[0], conv_biases[0])
+    def __init__(self, num_models, dense_kernel_size=32, embedding_dim=32,
+                 seed=0, logit_temp=1.0, orthogonal_init=True):
 
-    # subsequent calls vmap over both the prior input and the conv params
-    # the first representing the batched input with the second representing
-    # the batched models (i.e. the ensemble)
-    for conv_kernel, conv_bias in zip(conv_kernels[1:], conv_biases[1:]):
-        y = vmap(partial(_conv_block, 2, True))(y, conv_kernel, conv_bias)
+        if num_models <= 1:
+            raise Exception("requires at least two models")
 
-    # fully convolutional dense layer (with non linearity) as bottleneck
-    y = vmap(partial(_conv_block, 1, True))(y, dense_kernels, dense_biases)
+        self.num_models = num_models
+        self.logit_temp = logit_temp
 
-    # final projection to embedding dim (with no activation and no bias)
-    embeddings = vmap(partial(_conv_block_without_bias, 1, False))(
-        y, embedding_kernels)
-    # embeddings are squeezed and unit length normalised.
-    embeddings = jnp.squeeze(embeddings)  # (M, N, E)
-    embedding_norms = jnp.linalg.norm(embeddings, axis=-1, keepdims=True)
-    return embeddings / embedding_norms
+        key = random.PRNGKey(seed)
+        subkeys = random.split(key, 8)
 
+        # conv stack kernels and biases
+        if orthogonal_init:
+            initialiser = orthogonal
+        else:
+            initialiser = he_normal
+        self.conv_kernels = objax.ModuleList()
+        self.conv_biases = objax.ModuleList()
+        input_channels = 3
+        for i, output_channels in enumerate([32, 64, 64, 64, 64, 64]):
+            self.conv_kernels.append(TrainVar(initialiser()(
+                subkeys[i], (num_models, 3, 3, input_channels,
+                             output_channels))))
+            self.conv_biases.append(
+                TrainVar(jnp.zeros((num_models, output_channels))))
+            input_channels = output_channels
 
-@jit
-def calc_sims(params, crops_t0, crops_t1):
-    num_models = params[0].shape[0]
-    embeddings_t0 = embed(params, crops_t0)
-    embeddings_t1 = embed(params, crops_t1)
-    model_sims = jnp.einsum('mae,mbe->ab', embeddings_t0, embeddings_t1)
-    avg_model_sims = model_sims / num_models
-    return avg_model_sims
+        # dense kernels and biases
+        self.dense_kernels = TrainVar(initialiser()(
+            subkeys[6], (num_models, 1, 1, output_channels, dense_kernel_size)))
+        self.dense_biases = TrainVar(
+            jnp.zeros((num_models, dense_kernel_size)))
 
+        # embeddings kernel; no bias or non linearity.
+        if orthogonal_init:
+            initialiser = orthogonal
+        else:
+            initialiser = glorot_normal
+        self.embedding_kernels = TrainVar(initialiser()(
+            subkeys[7], (num_models, 1, 1, dense_kernel_size, embedding_dim)))
 
-# @jit
-def loss(params, crops_t0, crops_t1, labels, temp):
-    logits_from_sims = calc_sims(params, crops_t0, crops_t1)
-    logits_from_sims /= temp
-    batch_softmax_cross_entropy = jnp.mean(
-        -jnp.sum(jax.nn.log_softmax(logits_from_sims) * labels, axis=-1))
-    return batch_softmax_cross_entropy
+    def __call__(self, inp):
+        # the first call vmaps over the first conv params for a single input
+        y = vmap(partial(_conv_block, 2, True, inp))(
+            self.conv_kernels[0].value, self.conv_biases[0].value)
+
+        # subsequent calls vmap over both the prior input and the conv params
+        # the first representing the batched input with the second representing
+        # the batched models (i.e. the ensemble)
+        for conv_kernel, conv_bias in zip(self.conv_kernels[1:],
+                                          self.conv_biases[1:]):
+            y = vmap(partial(_conv_block, 2, True))(
+                y, conv_kernel.value, conv_bias.value)
+
+        # fully convolutional dense layer (with non linearity) as bottleneck
+        y = vmap(partial(_conv_block, 1, True))(
+            y, self.dense_kernels.value, self.dense_biases.value)
+
+        # final projection to embedding dim (with no activation and no bias)
+        embeddings = vmap(partial(_conv_block_without_bias, 1, False))(
+            y, self.embedding_kernels.value)
+
+        # embeddings are squeezed and unit length normalised.
+        embeddings = jnp.squeeze(embeddings)  # (M, N, E)
+        embedding_norms = jnp.linalg.norm(embeddings, axis=-1, keepdims=True)
+        return embeddings / embedding_norms
+
+    def calc_sims(self, crops_t0, crops_t1):
+        embeddings_t0 = self(crops_t0)
+        embeddings_t1 = self(crops_t1)
+        model_sims = jnp.einsum('mae,mbe->ab', embeddings_t0, embeddings_t1)
+        avg_model_sims = model_sims / self.num_models
+        return avg_model_sims
+
+    def loss(self, crops_t0, crops_t1, labels):
+        logits_from_sims = self.calc_sims(crops_t0, crops_t1)
+        logits_from_sims /= self.logit_temp
+        batch_softmax_cross_entropy = jnp.mean(
+            -jnp.sum(jax.nn.log_softmax(logits_from_sims) * labels, axis=-1))
+        return batch_softmax_cross_entropy

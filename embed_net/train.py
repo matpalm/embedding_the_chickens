@@ -3,8 +3,6 @@ import numpy as np
 from embed_net import optimal_pairing
 from embed_net import ensemble_net
 from detections import img_utils
-from jax import jit, grad
-from jax.experimental import optimizers
 import random as orandom
 import wandb
 import sys
@@ -12,10 +10,13 @@ import traceback
 import datetime
 from tqdm import tqdm
 from itertools import count
+import objax
 
 # uncomment for nan check
-from jax.config import config
-config.update("jax_debug_nans", True)
+#from jax.config import config
+#config.update("jax_debug_nans", True)
+
+# XLA_PYTHON_CLIENT_MEM_FRACTION=.XX
 
 
 def train(opts):
@@ -50,34 +51,36 @@ def train(opts):
         print("not using wandb", file=sys.stderr)
 
     # init model
-    params = ensemble_net.initial_params(num_models=opts.num_models,
+    embed_net = ensemble_net.EnsembleNet(num_models=opts.num_models,
                                          dense_kernel_size=opts.dense_kernel_size,
                                          embedding_dim=opts.embedding_dim,
                                          seed=opts.seed,
                                          orthogonal_init=ortho_init)
 
-    # init optimiser
-    opt_fns = optimizers.adam(step_size=opts.learning_rate)
-    opt_init_fun, opt_update_fun, opt_get_params = opt_fns
-    opt_state = opt_init_fun(params)
-    step_idx = count()
+    # make some jitted version of embed_net methods
+    # TODO: objax decorator to do this?
+    j_embed_net_calc_sims = objax.Jit(embed_net.calc_sims, embed_net.vars())
+    j_embed_net_loss = objax.Jit(embed_net.loss, embed_net.vars())
 
-    # create a jitted step function
-    @jit
-    def step(i, opt_state, crops_t0, crops_t1, labels):
-        params = opt_get_params(opt_state)
-        gradients = grad(ensemble_net.loss)(params, crops_t0, crops_t1,
-                                            labels, opts.logit_temp)
-        new_opt_state = opt_update_fun(i, gradients, opt_state)
-        return new_opt_state
-
-    def labels_for_crops(params, crops_t0, crops_t1):
-        # forward pass
-        sims = ensemble_net.calc_sims(params, crops_t0, crops_t1)
-        # derive labels from optimal pairing
+    # run pair of crops through model and calculate optimal pairing
+    def labels_for_crops(crops_t0, crops_t1):
+        sims = j_embed_net_calc_sims(crops_t0, crops_t1)
         pairing = optimal_pairing.calculate(sims)
         labels = optimal_pairing.to_one_hot_labels(sims, pairing)
         return labels
+
+    # init optimiser
+    gradient_loss = objax.GradValues(embed_net.loss, embed_net.vars())
+    optimiser = objax.optimizer.Adam(embed_net.vars())
+    lr = 1e-3
+
+    # create a jitted training step
+    def train_step(crops_t0, crops_t1, labels):
+        grads, loss = gradient_loss(crops_t0, crops_t1, labels)
+        optimiser(lr, grads)
+        return loss
+
+    train_step = objax.Jit(train_step, gradient_loss.vars() + optimiser.vars())
 
     # run training loop
     for e in range(opts.epochs):
@@ -93,14 +96,9 @@ def train(opts):
                 crops_t0 = img_utils.load_crops_as_floats(f"{f0}/crops.npy")
                 crops_t1 = img_utils.load_crops_as_floats(f"{f1}/crops.npy")
                 # calc labels for crops
-                labels = labels_for_crops(params, crops_t0, crops_t1)
+                labels = labels_for_crops(crops_t0, crops_t1)
                 # take update step
-                opt_state = step(next(step_idx), opt_state,
-                                 crops_t0, crops_t1, labels)
-                params = opt_get_params(opt_state)
-                # collect loss for debugging
-                loss = ensemble_net.loss(
-                    params, crops_t0, crops_t1, labels, opts.logit_temp)
+                loss = train_step(crops_t0, crops_t1, labels)
                 train_losses.append(loss)
             except Exception:
                 print("train exception", e, f0, f1, file=sys.stderr)
@@ -108,17 +106,15 @@ def train(opts):
 
         # eval mean test loss
         test_losses = []
-        params = opt_get_params(opt_state)
         for f0, f1 in test_frame_pairs:
             try:
                 # load
                 crops_t0 = img_utils.load_crops_as_floats(f"{f0}/crops.npy")
                 crops_t1 = img_utils.load_crops_as_floats(f"{f1}/crops.npy")
                 # calc labels for crops
-                labels = labels_for_crops(params, crops_t0, crops_t1)
+                labels = labels_for_crops(crops_t0, crops_t1)
                 # collect loss
-                loss = ensemble_net.loss(
-                    params, crops_t0, crops_t1, labels, opts.logit_temp)
+                loss = j_embed_net_loss(crops_t0, crops_t1, labels)
                 test_losses.append(loss)
             except Exception:
                 print("test exception", e, f0, f1, file=sys.stderr)

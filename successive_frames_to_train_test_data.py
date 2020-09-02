@@ -26,15 +26,16 @@ class Run(object):
         self.run.append(Crop(fname_dir, count))
 
     def flush(self):
-        print(">flush")
         if len(self.run) >= 2:
             c0 = self.run.pop(0)
             for c1 in self.run:
-                if c0.count <= c1.count:
-                    rec = self.base_dir, c0.fname, c1.fname
-                else:
-                    rec = self.base_dir, c1.fname, c0.fname
-                print("new df_records", rec)
+                f0 = c0.fname
+                f1 = c1.fname
+                # we want f0 entry represent lower count, so if this is
+                # not the case swap f0 & f1
+                if c0.count > c1.count:
+                    f0, f1 = f1, f0
+                rec = f"{self.base_dir}/{f0}", f"{self.base_dir}/{f1}"
                 self.df_records.append(rec)
                 c0 = c1
         self.run = []
@@ -54,7 +55,6 @@ for cam in ['pi_a', 'pi_b', 'pi_c']:
         run = Run(base_dir, df_records)
         for fname_dir in sorted(os.listdir(base_dir)):
             count = len(glob.glob(f"{base_dir}/{fname_dir}/*png"))
-            print("!!", base_dir, fname_dir, count)
             if count >= 5:
                 run.add(fname_dir, count)
             else:
@@ -62,19 +62,20 @@ for cam in ['pi_a', 'pi_b', 'pi_c']:
         run.flush()
 
 # sanity check
-for base_dir, f0, f1 in df_records:
-    if not os.path.exists(f"{base_dir}/{f0}/crops.npy"):
+for f0, f1 in df_records:
+    if not os.path.exists(f"{f0}/crops.npy"):
         print("no crops for ", base_dir, f0)
-    if not os.path.exists(f"{base_dir}/{f1}/crops.npy"):
+    if not os.path.exists(f"{f1}/crops.npy"):
         print("no crops for ", base_dir, f1)
 
 # write out tsv
+random.seed(42)
 random.shuffle(df_records)
 split_idx = int(len(df_records) * 0.9)
 train_records = run.df_records[:split_idx]
 test_records = run.df_records[split_idx:]
 
-pd.DataFrame(train_records, columns=['dir', 'frame_0', 'frame_1']).to_csv(
+pd.DataFrame(train_records, columns=['frame_0', 'frame_1']).to_csv(
     opts.train_tsv, sep="\t", index=False)
-pd.DataFrame(test_records, columns=['dir', 'frame_0', 'frame_1']).to_csv(
+pd.DataFrame(test_records, columns=['frame_0', 'frame_1']).to_csv(
     opts.test_tsv, sep="\t", index=False)

@@ -38,19 +38,19 @@ def calculate(sims):
     if status != pywraplp.Solver.OPTIMAL:
         raise Exception("sorry, no solution; :(")
 
-    # extract and return solution as dictionary mapping
-    # from { row: column, ... }
+    # extract and return solution as array when ith element denotes ith row
+    # associated with a[i] column
     solution = []
     for i in range(N):
         for j in range(M):
             if x[i, j].solution_value() == 1:
-                solution.append((i, j))
-    return dict(solution)
+                solution.append(j)
+    return solution
 
 
 def to_one_hot_labels(sims, pairings):
     labels = np.zeros_like(sims)
-    for i, j in pairings.items():
+    for i, j in enumerate(pairings):
         labels[i, j] = 1.0
     return labels
 

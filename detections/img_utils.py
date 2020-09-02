@@ -35,6 +35,5 @@ def parse_frame_pairs(manifest):
     df = pd.read_csv(manifest, sep="\t", dtype=object)
     frame_pairs = []
     for _index, row in df.iterrows():
-        frame_pairs.append((f"{row['dir']}/{row['frame_0']}",
-                            f"{row['dir']}/{row['frame_1']}"))
+        frame_pairs.append((row['frame_0'], row['frame_1']))
     return frame_pairs
